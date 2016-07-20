@@ -19,14 +19,19 @@ class LearningAgent(Agent):
         self.q_table = self.init_q_table()          # Q Table with zeros
 
         # Tuning Parameters
-        self.alpha = 0.8      # learning rate       1=sensitive, 0=insensitive
-        self.gamma = 0.2      # discount rate       1=long_term, 0=short_term
-        self.elipson = 0.1    # exploration rate    1=random, 0=specific
+        self.alpha = 0.8      # learning rate           1=sensitive, 0=insensitive
+        self.gamma = 0.2      # discount rate           1=long_term, 0=short_term
+        self.epsilon = 0.8    # exploration rate        1=random, 0=specific
+        self.decay =  0.1     # decay rate of epsilon   1=faster, 0=slower
 
-
+        # Data logged for debugging/analysis
+        self.n_trials = 0
+        self.review = pd.DataFrame(columns=['trial', 'deadline', 'reward'])
 
     def reset(self, destination=None):
         self.planner.route_to(destination)
+        self.n_trials += 1
+        self.epsilon = self.epsilon * (1 - self.decay)
         self.debug() # debug helper
 
     def update(self, t):
@@ -36,7 +41,7 @@ class LearningAgent(Agent):
         deadline = self.env.get_deadline(self)
 
         # Update state
-        self.state = (inputs['light'], self.planner.next_waypoint(), inputs['oncoming'])
+        self.state = (inputs['light'], self.planner.next_waypoint(), inputs['oncoming'], inputs['left'])
 
         # Select action according to your policy
         action = self.choose_action(self.state)
@@ -47,6 +52,9 @@ class LearningAgent(Agent):
         # Learn policy based on state, action, reward
         self.learn(self.state, action, reward)
 
+        # Collect for each turn debugging/analysis
+        review_df = pd.DataFrame([[self.n_trials, deadline, reward]], columns=['trial', 'deadline', 'reward'])
+        self.review = self.review.append(review_df)
 
         print "LearningAgent.update(): deadline = {}, inputs = {}, action = {}, reward = {}".format(deadline, inputs, action, reward)  # [debug]
 
@@ -55,7 +63,8 @@ class LearningAgent(Agent):
         light_states = ['red', 'green']
         waypoint_states = self.actions
         oncoming_states = Environment.valid_inputs['oncoming']
-        arr = [light_states, waypoint_states, oncoming_states]
+        left_states = Environment.valid_inputs['oncoming']
+        arr = [light_states, waypoint_states, oncoming_states, left_states]
         possible_combos = list(itertools.product(*arr))
         return possible_combos
 
@@ -64,7 +73,7 @@ class LearningAgent(Agent):
         # Create a pandas dataframe for the Q Table and initilize with all zeros
         shape = (len(self.states), len(self.actions))
         zeros = np.zeros(shape, dtype=float)
-        index = pd.MultiIndex.from_tuples(self.states, names=['light', 'waypoint', 'oncoming'])
+        index = pd.MultiIndex.from_tuples(self.states, names=['light', 'waypoint', 'oncoming', 'left'])
         q_table = pd.DataFrame(zeros, index=index, columns=self.actions)
         return q_table
 
@@ -72,7 +81,8 @@ class LearningAgent(Agent):
         # Helper method to return a series of values from the Q Table
         light, waypoint = state[0], state[1]
         oncoming = state[2] or np.nan # convert None to NaN
-        series = self.q_table.loc[(light, waypoint, oncoming)]
+        left = state[3] or np.nan
+        series = self.q_table.loc[(light, waypoint, oncoming, left)]
         return series
 
     def random_action(self):
@@ -85,8 +95,8 @@ class LearningAgent(Agent):
         q_values = self.get_q_values(state)
         q_max = q_values.values.max()
 
-        if self.elipson > random.random():
-            # Choose a random action if elipson is greater than random value
+        if (self.epsilon ) > random.random():
+            # Choose a random action if epsilon is greater than random value
             action = self.random_action()
         else:
             # Select best action (use random choice to break ties)
@@ -101,19 +111,21 @@ class LearningAgent(Agent):
 
         # Get the max Q value in the next state
         inputs = self.env.sense(self)
-        next_state = (inputs['light'], self.planner.next_waypoint(), inputs['oncoming'])
+        next_state = (inputs['light'], self.planner.next_waypoint(), inputs['oncoming'], inputs['left'])
         q_values_next = self.get_q_values(next_state)
         q_max_next = q_values_next.values.max()
 
         # Update Q table for the action taken using the Q formula
-        # Q(s, a) = alpha * ( R(s, a) + gamma * Max[Q(s', a')] )
-        q = self.alpha * ( reward + (self.gamma * q_max_next) )
+        q = q_current + self.alpha * ( reward + (self.gamma * q_max_next) - q_current)
         q_values.loc[action] = q.round(5)
 
     def debug(self):
+        print ("Epsilon ---> ", self.epsilon)
         print(self.q_table)
-
-
+        reward = self.review[self.review['trial'] == self.n_trials-1].reward
+        print("Mean --> ", reward.mean())
+        print("Min --> ", reward.min())
+        print("Max --> ", reward.max())
 
 def run():
     """Run the agent for a finite number of trials."""
