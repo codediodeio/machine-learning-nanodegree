@@ -6,3 +6,4 @@ Udacity Machine Learning Nanodegree projects and examples.
 - Boston Home Prices - Model Validation
 - Student Intervention - Supervised Learning
 - Customer Segments - Unsupervised Learning
+- SmartCab - Reinforcement Learning

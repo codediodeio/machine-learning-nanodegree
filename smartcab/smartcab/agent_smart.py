@@ -86,7 +86,7 @@ class LearningAgent(Agent):
         q_max = q_values.values.max()
 
         if self.elipson > random.random():
-            # Choose a random action of elipson is greater than random value
+            # Choose a random action if elipson is greater than random value
             action = self.random_action()
         else:
             # Select best action (use random choice to break ties)
